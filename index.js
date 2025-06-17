@@ -1,45 +1,73 @@
-const venom = require('venom-bot');
+const { Client, LocalAuth } = require('whatsapp-web.js');
+const qrcode = require('qrcode-terminal');
 const express = require('express');
 const app = express();
 const port = process.env.PORT || 3000;
 
-venom
-  .create({
-    session: 'session-name',
-    multidevice: true,
-    headless: true,
-    browserArgs: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--disable-gpu',
-      '--no-zygote',
-      '--single-process',
-      '--disable-dev-tools'
-    ]
-  })
-  .then((client) => {
-    console.log('🟢 BOT ONLINE');
-    startBot(client);
-  })
-  .catch((error) => {
-    console.log('❌ Erro ao iniciar', error);
-  });
+app.use(express.json());
 
-function startBot(client) {
-  client.onMessage((message) => {
-    if (message.body.toLowerCase() === 'ola') {
-      client.sendText(message.from, 'Olá! Sou o bot do Glebson, como posso ajudar? 🤖');
+// Inicializa o WhatsApp
+const client = new Client({
+    authStrategy: new LocalAuth(),
+    puppeteer: {
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
     }
-  });
-}
+});
 
-// Endpoint básico para testar se o Render está rodando
+// QR Code no terminal e via API
+let qrCodeTemp = null;
+
+client.on('qr', qr => {
+    qrCodeTemp = qr;
+    qrcode.generate(qr, { small: true });
+    console.log('Escaneie o QR acima para conectar');
+});
+
+client.on('ready', () => {
+    console.log('✅ Bot conectado com sucesso!');
+    qrCodeTemp = null;
+});
+
+// API para visualizar QR
+app.get('/qr', (req, res) => {
+    if (qrCodeTemp) {
+        res.send(`
+            <h1>Escaneie o QR Code</h1>
+            <img src="https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qrCodeTemp)}&size=300x300">
+        `);
+    } else {
+        res.send('✅ Já está conectado ou QR não gerado.');
+    }
+});
+
+// Endpoint para enviar mensagem
+app.post('/send', async (req, res) => {
+    const { number, message } = req.body;
+
+    if (!number || !message) {
+        return res.status(400).json({ status: false, message: 'Número e mensagem são obrigatórios' });
+    }
+
+    const numberWithCountryCode = number.includes('@c.us') ? number : `${number}@c.us`;
+
+    client.sendMessage(numberWithCountryCode, message)
+        .then(response => {
+            res.json({ status: true, response });
+        })
+        .catch(err => {
+            res.status(500).json({ status: false, error: err.message });
+        });
+});
+
+// Status da conexão
 app.get('/', (req, res) => {
-  res.send('🟢 Bot do Glebson rodando no Render!');
+    res.send('✅ API WhatsApp está rodando...');
 });
 
+// Inicia o servidor
 app.listen(port, () => {
-  console.log(`Servidor rodando na porta ${port}`);
+    console.log(`🚀 API rodando em http://localhost:${port}`);
 });
+
+// Inicia o cliente do WhatsApp
+client.initialize();
