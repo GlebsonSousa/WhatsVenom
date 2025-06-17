@@ -1,70 +1,45 @@
 const venom = require('venom-bot');
 const express = require('express');
 const app = express();
-app.use(express.json());
+const port = process.env.PORT || 3000;
 
-let client;
-
-// Cria sessão do WhatsApp
 venom
   .create({
     session: 'session-name',
-    multidevice: true
+    multidevice: true,
+    headless: true,
+    browserArgs: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--disable-gpu',
+      '--no-zygote',
+      '--single-process',
+      '--disable-dev-tools'
+    ]
   })
-  .then((cl) => {
-    client = cl;
-    console.log('✅ WhatsApp conectado!');
-    startBot(client); // Inicia o bot após conectar
+  .then((client) => {
+    console.log('🟢 BOT ONLINE');
+    startBot(client);
   })
-  .catch((error) => console.log('❌ Erro na conexão', error));
+  .catch((error) => {
+    console.log('❌ Erro ao iniciar', error);
+  });
 
-// Função que escuta e responde mensagens
 function startBot(client) {
-  client.onMessage(async (message) => {
-    const texto = message.body.toLowerCase();
-    const numero = message.from;
-
-    if (texto === 'ola' || texto === 'olá') {
-      await client.sendText(
-        numero,
-        'Olá, sou um bot do Glebson! 🚀'
-      );
-      console.log(`✅ Respondi 'Olá' para ${numero}`);
-    }
-
-    // Você pode criar mais respostas aqui
-    if (texto === 'menu') {
-      await client.sendText(
-        numero,
-        '📋 Menu:\n1️⃣ Info\n2️⃣ Suporte\n3️⃣ IA'
-      );
+  client.onMessage((message) => {
+    if (message.body.toLowerCase() === 'ola') {
+      client.sendText(message.from, 'Olá! Sou o bot do Glebson, como posso ajudar? 🤖');
     }
   });
 }
 
-// Rota raiz
+// Endpoint básico para testar se o Render está rodando
 app.get('/', (req, res) => {
-  res.send('🚀 API WhatsApp Rodando!');
+  res.send('🟢 Bot do Glebson rodando no Render!');
 });
 
-// Envio manual via API HTTP
-app.post('/send', async (req, res) => {
-  const { phone, message } = req.body;
-
-  if (!phone || !message) {
-    return res.status(400).send({ error: 'Parâmetros faltando' });
-  }
-
-  try {
-    await client.sendText(`${phone}@c.us`, message);
-    res.send({ status: 'Mensagem enviada' });
-  } catch (error) {
-    res.status(500).send({ error: 'Erro ao enviar mensagem', details: error });
-  }
-});
-
-// Porta do servidor
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 API rodando na porta ${PORT}`);
+app.listen(port, () => {
+  console.log(`Servidor rodando na porta ${port}`);
 });

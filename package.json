@@ -1,13 +1,15 @@
 {
-  "name": "whatsapp-api",
+  "name": "whatsapp-bot",
   "version": "1.0.0",
-  "description": "API simples para WhatsApp usando Venom Bot",
+  "description": "Bot do WhatsApp com Venom rodando no Render",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
+  "author": "Glebson",
+  "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
-    "venom-bot": "^4.1.5"
+    "venom-bot": "^5.0.0"
   }
 }
