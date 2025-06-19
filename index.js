@@ -1,50 +1,55 @@
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const qrcode = require('qrcode');
 const express = require('express');
-const venom = require('venom-bot');
-
 const app = express();
 const port = process.env.PORT || 3000;
 
-let client = null;
-let latestQr = null;
+let sock;
+let qrCodeString = null;
+
+async function connectToWhatsApp() {
+  const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+
+  sock = makeWASocket({
+    auth: state,
+    printQRInTerminal: false
+  });
+
+  sock.ev.on('connection.update', (update) => {
+    const { connection, lastDisconnect, qr } = update;
+
+    if (qr) {
+      qrCodeString = qr;
+      console.log('Novo QR code gerado!');
+    }
+
+    if (connection === 'close') {
+      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+      console.log('Conexão fechada por', lastDisconnect.error, ', reconectando...', shouldReconnect);
+      if (shouldReconnect) connectToWhatsApp();
+    } else if (connection === 'open') {
+      console.log('Conectado com sucesso 🔥');
+      qrCodeString = null;
+    }
+  });
+
+  sock.ev.on('creds.update', saveCreds);
+}
+
+connectToWhatsApp();
 
 app.get('/', (req, res) => {
-  res.send('API Venom está rodando');
+  res.send('✅ API WhatsApp Baileys está rodando!');
 });
 
-app.get('/conecta', (req, res) => {
-  if (client) {
-    return res.send('Sessão já conectada');
+app.get('/qr', async (req, res) => {
+  if (!qrCodeString) {
+    return res.send('✅ Sessão já conectada ou QR não gerado.');
   }
-
-  venom
-    .create(
-      'session-name',
-      (base64Qr) => {
-        console.log('QR code atualizado');
-        latestQr = base64Qr;
-      },
-      undefined,
-      { headless: true }
-    )
-    .then((c) => {
-      client = c;
-      console.log('Cliente conectado!');
-      res.redirect('/qr');
-    })
-    .catch((erro) => {
-      console.error('Erro ao criar sessão:', erro);
-      if (!res.headersSent) res.status(500).send('Erro ao criar sessão');
-    });
-});
-
-app.get('/qr', (req, res) => {
-  if (!latestQr) {
-    return res.send('QR code ainda não gerado. Acesse /conecta para iniciar a sessão.');
-  }
-
+  const qrImg = await qrcode.toDataURL(qrCodeString);
   res.send(`
-    <h3>Escaneie o QR code para conectar o WhatsApp</h3>
-    <img src="data:image/png;base64,${latestQr}" />
+    <h2>Escaneie o QR code para conectar seu WhatsApp</h2>
+    <img src="${qrImg}" />
     <script>
       setTimeout(() => {
         window.location.reload();
@@ -54,5 +59,5 @@ app.get('/qr', (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`API rodando na porta ${port}`);
+  console.log(`🚀 Servidor rodando na porta ${port}`);
 });
