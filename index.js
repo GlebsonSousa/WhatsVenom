@@ -1,76 +1,108 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+// 📦 Importação dos pacotes necessários
+const { default: criarConexaoWhatsapp, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode');
 const express = require('express');
+
+// 🚀 Inicializa o servidor Express
 const app = express();
-const port = process.env.PORT || 3000;
+const porta = process.env.PORT || 3000;
 
-let sock;
-let qrCodeString = null;
+// 🔗 Variáveis globais
+let conexaoWhatsapp;         // Armazena a conexão ativa do WhatsApp
+let qrCodeAtual = null;      // Armazena o QR Code temporário para conexão
 
-// 🔥 Função que conecta ao WhatsApp
-async function connectToWhatsApp() {
-  const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+// 🔥 Função principal — Inicia a conexão com o WhatsApp
+async function iniciarConexaoWhatsapp() {
+  const { state, saveCreds } = await useMultiFileAuthState('dados_autenticacao');
 
-  sock = makeWASocket({
+  conexaoWhatsapp = criarConexaoWhatsapp({
     auth: state,
-    printQRInTerminal: false
+    printQRInTerminal: false // Não exibe no terminal, pois vamos exibir via web
   });
 
-  // 🚀 Evento de atualização de conexão
-  sock.ev.on('connection.update', (update) => {
-    const { connection, lastDisconnect, qr } = update;
+  // 🚦 Gerenciamento da conexão
+  conexaoWhatsapp.ev.on('connection.update', (atualizacao) => {
+    const { connection, lastDisconnect, qr } = atualizacao;
 
     if (qr) {
-      qrCodeString = qr;
-      console.log('🟨 Novo QR gerado');
+      qrCodeAtual = qr; // Salva QR para exibir via navegador
+      console.log('🟨 QR Code gerado — Acesse /qr para escanear');
     }
 
     if (connection === 'close') {
-      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-      console.log('🟥 Conexão fechada, reconectar?', shouldReconnect);
-      if (shouldReconnect) connectToWhatsApp();
+      const deveReconectar = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+      console.log('🟥 Conexão fechada. Reconectar?', deveReconectar);
+      if (deveReconectar) iniciarConexaoWhatsapp();
     } else if (connection === 'open') {
-      console.log('🟩 Conectado com sucesso!');
-      qrCodeString = null;
+      console.log('🟩 Conectado ao WhatsApp!');
+      qrCodeAtual = null; // Limpa QR pois já está conectado
     }
   });
 
-  // ✅ Evento que recebe mensagens
-  sock.ev.on('messages.upsert', async (msg) => {
-    const info = msg.messages[0];
-    if (!info.message || info.key.fromMe) return;
+  // 📥 Recebe mensagens e responde automaticamente se for "ola" ou "olá"
+  conexaoWhatsapp.ev.on('messages.upsert', async (mensagem) => {
+    const infoMensagem = mensagem.messages[0];
+    if (!infoMensagem.message || infoMensagem.key.fromMe) return;
 
-    const senderNumber = info.key.remoteJid;
-    const messageContent = info.message.conversation || info.message.extendedTextMessage?.text;
+    const numeroRemetente = infoMensagem.key.remoteJid;
+    const conteudoMensagem = infoMensagem.message.conversation || infoMensagem.message.extendedTextMessage?.text;
 
-    console.log(`📩 Mensagem recebida de ${senderNumber}: ${messageContent}`);
+    console.log(`📩 Mensagem recebida de ${numeroRemetente}: ${conteudoMensagem}`);
 
-    // Se recebeu "Olá", responde automaticamente
-    if (messageContent?.toLowerCase() === 'ola' || messageContent?.toLowerCase() === 'olá') {
-      await sock.sendMessage(senderNumber, { text: 'Olá, eu sou um bot do Glebson.' });
-      console.log(`✅ Respondi para ${senderNumber}`);
+    if (conteudoMensagem?.toLowerCase() === 'ola' || conteudoMensagem?.toLowerCase() === 'olá') {
+      await enviarMensagem(numeroRemetente, 'Olá, eu sou um bot do Glebson!');
+      console.log(`✅ Respondi automaticamente para ${numeroRemetente}`);
     }
   });
 
-  sock.ev.on('creds.update', saveCreds);
+  // 🔐 Atualiza as credenciais salvas
+  conexaoWhatsapp.ev.on('creds.update', saveCreds);
 }
 
-connectToWhatsApp();
+// ✉️ Função para enviar mensagem
+async function enviarMensagem(numero, mensagem) {
+  if (!conexaoWhatsapp) throw new Error('❌ WhatsApp não está conectado.');
+  await conexaoWhatsapp.sendMessage(numero, { text: mensagem });
+}
 
-// 🌐 Endpoint raiz
+// 📷 Função que gera QR Code em base64
+async function gerarQRCode() {
+  if (!qrCodeAtual) return null;
+  return await qrcode.toDataURL(qrCodeAtual);
+}
+
+// 🚦 Verifica status da conexão
+function obterStatusConexao() {
+  return conexaoWhatsapp ? '🟢 Conectado ao WhatsApp!' : '🔴 Não conectado!';
+}
+
+// 🌐 ROTAS DA API
+
+// 🏠 Endpoint raiz
 app.get('/', (req, res) => {
-  res.send('✅ API WhatsApp Baileys está rodando!');
+  res.send('✅ API WhatsApp rodando!');
 });
 
-// 🌐 Gera o QR Code
-app.get('/qr', async (req, res) => {
-  if (!qrCodeString) {
-    return res.send('✅ Sessão já conectada ou QR não gerado.');
+// 🔌 Endpoint para iniciar a conexão manualmente (opcional)
+app.get('/iniciar', async (req, res) => {
+  try {
+    await iniciarConexaoWhatsapp();
+    res.send('🔌 Conexão com WhatsApp iniciada!');
+  } catch (erro) {
+    res.status(500).send(`❌ Erro ao iniciar: ${erro.message}`);
   }
-  const qrImg = await qrcode.toDataURL(qrCodeString);
+});
+
+// 🔗 Endpoint que gera e exibe o QR Code no navegador
+app.get('/qr', async (req, res) => {
+  const qr = await gerarQRCode();
+  if (!qr) {
+    return res.send('✅ Sessão já conectada ou QR não disponível.');
+  }
+
   res.send(`
-    <h2>🔗 Escaneie o QR code para conectar seu WhatsApp</h2>
-    <img src="${qrImg}" />
+    <h2>🔗 Escaneie o QR Code para conectar ao WhatsApp</h2>
+    <img src="${qr}" />
     <script>
       setTimeout(() => {
         window.location.reload();
@@ -79,37 +111,30 @@ app.get('/qr', async (req, res) => {
   `);
 });
 
-// 🌐 Envia mensagem manualmente
-app.get('/send', async (req, res) => {
-  const number = req.query.number;
-  const message = req.query.message;
+// 📤 Endpoint que envia mensagem manual
+app.get('/enviar', async (req, res) => {
+  const numero = req.query.numero;
+  const mensagem = req.query.mensagem;
 
-  if (!sock) {
-    return res.send('❌ WhatsApp não conectado.');
-  }
-
-  if (!number || !message) {
-    return res.send('⚠️ Informe number= e message=');
+  if (!numero || !mensagem) {
+    return res.send('⚠️ Informe os parâmetros numero= e mensagem=');
   }
 
   try {
-    await sock.sendMessage(`${number}@s.whatsapp.net`, { text: message });
-    res.send('✅ Mensagem enviada!');
-  } catch (e) {
-    console.error(e);
-    res.send('❌ Erro ao enviar mensagem');
+    await enviarMensagem(`${numero}@s.whatsapp.net`, mensagem);
+    res.send('✅ Mensagem enviada com sucesso!');
+  } catch (erro) {
+    res.status(500).send(`❌ Erro ao enviar: ${erro.message}`);
   }
 });
 
-// 🌐 Checa status da conexão
+// 🚦 Endpoint para checar status da conexão
 app.get('/status', (req, res) => {
-  if (sock) {
-    res.send('🟢 Conectado!');
-  } else {
-    res.send('🔴 Não conectado!');
-  }
+  res.send(obterStatusConexao());
 });
 
-app.listen(port, () => {
-  console.log(`🚀 API rodando na porta ${port}`);
+// 🚀 Inicia o servidor automaticamente
+app.listen(porta, () => {
+  console.log(`🚀 Servidor rodando na porta ${porta}`);
+  iniciarConexaoWhatsapp();
 });
